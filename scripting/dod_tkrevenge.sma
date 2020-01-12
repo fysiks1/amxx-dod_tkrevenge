@@ -4,7 +4,7 @@
 // Developed by The AMX Mod X DoD Community
 // http://www.dodplugins.net
 //
-// Author: FeuerSturm
+// Author: FeuerSturm (Highly refactored by Fysiks)
 //
 //
 // This program is free software; you can redistribute it and/or
@@ -506,16 +506,26 @@
 //     with this version if you want multilanguage
 //     support, for now no other changes have been made!
 //
+// - 19.01.2014 (Fysiks)
+//   - Refactored a bunch of code (some changes improve efficiency)
+//   - Updated spawn hook to Hamsandwich (the only reliable method for detecting spawn)
+//   - Moved bot action to the menu handler
+//     
 
 #include <amxmodx>
 #include <amxmisc>
 #include <dodx>
 #include <dodfun>
 #include <fun>
+#include <hamsandwich>
 
-new tkcount[33], teamkiller[33], tkillglow[33], meleetk[33], nadetk[33], karma[33], spawned[33]
-new spawnorigin[33][3], killorigin[33][3], tkerorigin[33][3], killerburn, tacount[33], respawnslay[33]
+new tkcount[33], tacount[33], karma[33], teamkiller[33], tk_punishment[33]
+new tkillglow[33], melee_attacked[33], nadetk[33], spawn_attacked[33], respawnslay[33]
+new spawnorigin[33][3], killorigin[33][3], tkerorigin[33][3]
 
+new g_pExplodeModel // Pointer to the explosion model
+
+// Cvars
 new g_dod_tkrevenge_enabled
 new g_dod_tkrevenge_obeyimmunity
 new g_dod_tkrevenge_warnings
@@ -533,7 +543,7 @@ new g_dod_tkrevenge_enableglow
 new g_dod_tkrevenge_forgiveslap
 new g_dod_tkrevenge_respawnslay
 new g_dod_tkrevenge_killfx
-new g_dod_tkrevenge_spawnprotect
+// new g_dod_tkrevenge_spawnprotect
 new g_dod_tkrevenge_spawntahandle
 new g_dod_tkrevenge_addmirrordmg
 new g_dod_tkrevenge_spawndistance
@@ -549,8 +559,8 @@ new g_dod_tkrevenge_savetks
 
 public plugin_init()
 {
-	register_plugin("DoD TK Revenge","1.2","AMXX DoD Team")
-	register_cvar("dod_tkrevenge_plugin", "Version 1.2 by FeuerSturm | www.dodplugins.net", FCVAR_SERVER|FCVAR_SPONLY)
+	register_plugin("DoD TK Revenge","1.2f2","AMXX DoD Team/Fysiks")
+	register_cvar("dod_tkrevenge_plugin", "Version 1.2f1 by FeuerSturm | Refactored by Fysiks", FCVAR_SERVER|FCVAR_SPONLY)
 	register_statsfwd(XMF_SCORE)
 	register_statsfwd(XMF_DAMAGE)
 	register_event("DeathMsg", "player_died", "a")
@@ -573,29 +583,37 @@ public plugin_init()
 	g_dod_tkrevenge_forgiveslap = register_cvar("dod_tkrevenge_forgiveslap","1")
 	g_dod_tkrevenge_respawnslay = register_cvar("dod_tkrevenge_respawnslay","1")
 	g_dod_tkrevenge_killfx = register_cvar("dod_tkrevenge_killfx","1")
-	g_dod_tkrevenge_spawnprotect = register_cvar("dod_tkrevenge_spawnprotect","1")
-	g_dod_tkrevenge_spawntahandle = register_cvar("dod_tkrevenge_spawntahandle","2")
+	// g_dod_tkrevenge_spawnprotect = register_cvar("dod_tkrevenge_spawnprotect","1")
+	g_dod_tkrevenge_spawntahandle = register_cvar("dod_tkrevenge_spawntahandle","0")
 	g_dod_tkrevenge_addmirrordmg = register_cvar("dod_tkrevenge_addmirrordmg","5")
 	g_dod_tkrevenge_spawndistance = register_cvar("dod_tkrevenge_spawndistance","800")
-	g_dod_tkrevenge_spawntkcount = register_cvar("dod_tkrevenge_spawntkcount","3")
+	g_dod_tkrevenge_spawntkcount = register_cvar("dod_tkrevenge_spawntkcount","1")
 	g_dod_tkrevenge_meleeslay = register_cvar("dod_tkrevenge_meleeslay","1")
-	g_dod_tkrevenge_meleetkcount = register_cvar("dod_tkrevenge_meleetkcount","2")
+	g_dod_tkrevenge_meleetkcount = register_cvar("dod_tkrevenge_meleetkcount","1")
 	g_dod_tkrevenge_nadetkcount = register_cvar("dod_tkrevenge_nadetkcount","0")
 	g_dod_tkrevenge_karmareducetk = register_cvar("dod_tkrevenge_karmareducetk","25")
 	g_dod_tkrevenge_scorekarma = register_cvar("dod_tkrevenge_scorekarma","2")
 	g_dod_tkrevenge_killkarma = register_cvar("dod_tkrevenge_killkarma","1")
 	g_dod_tkrevenge_botaction = register_cvar("dod_tkrevenge_botaction","0")
-	g_dod_tkrevenge_savetks = register_cvar("dod_tkrevenge_savetks","1")	
+	g_dod_tkrevenge_savetks = register_cvar("dod_tkrevenge_savetks","0")	
 	register_menucmd(register_menuid("DoD TK Revenge"),(1<<0)|(1<<1)|(1<<2),"tkrevenge_options")
 	register_event("RoundState","reset_teamattacks","a","1=3","1=4","1=5")
-	register_event("ResetHUD","client_spawn","be")
+	RegisterHam(Ham_Spawn, "player", "client_spawn", 1)
 	register_dictionary("dod_tkrevenge.txt")
 	set_cvar_num("mp_tkpenalty",-1)	
 }
 
 public plugin_precache()
 { 
-	killerburn = precache_model("sprites/explode1.spr") 
+	g_pExplodeModel = precache_model("sprites/explode1.spr") 
+}
+
+public plugin_cfg()
+{
+	// Set the tk penalty to correspond with the warnings for a ban (plus 2)
+	// so that the plugin can ban before they get kicked.
+	set_cvar_num("mp_tkpenalty", get_pcvar_num(g_dod_tkrevenge_warnings) * 2 + 2)
+	// mp_tkpenalty is glitched.  It will kick after 'mp_tkpenalty'/2 team kills in a row.
 }
 
 public client_authorized(id)
@@ -603,16 +621,16 @@ public client_authorized(id)
 	tkcount[id] = 0
 	tkillglow[id] = 0
 	teamkiller[id] = 0
-	meleetk[id] = 0
+	melee_attacked[id] = 0
 	nadetk[id] = 0
 	karma[id] = 0
-	spawned[id] = 0
+	spawn_attacked[id] = 0
 	tacount[id] = 0
 }
 
 public client_putinserver(id)
 {
-	if(get_pcvar_num(g_dod_tkrevenge_savetks) == 1)
+	if( get_pcvar_num(g_dod_tkrevenge_savetks) )
 	{
 		new steamid[32]
 		get_user_authid(id, steamid, 31)
@@ -636,7 +654,7 @@ public client_putinserver(id)
 
 public client_disconnect(id)
 {
-	if(get_pcvar_num(g_dod_tkrevenge_savetks) == 1)
+	if( get_pcvar_num(g_dod_tkrevenge_savetks) )
 	{
 		new steamid[32]
 		get_user_authid(id, steamid, 31)
@@ -661,6 +679,7 @@ public client_disconnect(id)
 			write_file(tkfile, tks, 0)
 		}
 	}
+	
 	new plist[32],pnum
 	get_players(plist,pnum)
 	for(new i=0; i<pnum; i++)
@@ -686,118 +705,123 @@ public reset_teamattacks()
 				tacount[plist[i]] = 0
 			}
 		}
-		return PLUGIN_CONTINUE
 	}
 	return PLUGIN_CONTINUE
 }
 
 public client_score(index,score,total)
 {
-	if(get_pcvar_num(g_dod_tkrevenge_enabled) == 0 || ((get_user_flags(index)&ADMIN_IMMUNITY) && get_pcvar_num(g_dod_tkrevenge_obeyimmunity) == 1))
+	if( !get_pcvar_num(g_dod_tkrevenge_enabled) || ((get_user_flags(index) & ADMIN_IMMUNITY) && get_pcvar_num(g_dod_tkrevenge_obeyimmunity)) )
 	{
 		return PLUGIN_CONTINUE
 	}
-	if(is_user_bot(index) == 0 && get_pcvar_num(g_dod_tkrevenge_karmareducetk) != 0)
+	
+	if( !is_user_bot(index) && get_pcvar_num(g_dod_tkrevenge_karmareducetk) )
 	{
-		new addkarma = get_pcvar_num(g_dod_tkrevenge_scorekarma)
-		karma[index] += addkarma
-		new player = index
-		checkkarma(player)
+		karma[index] += get_pcvar_num(g_dod_tkrevenge_scorekarma)
+		checkkarma(index)
 		return PLUGIN_CONTINUE
 	}
 	return PLUGIN_CONTINUE
 }
 
+
+// Issue:  If you spawn+melee tk, there is a race condition.  If it recognizes spawn tk first, you don't get punishment (with bots set to not forgive).
 public client_damage(attacker,victim,damage,wpnindex,hitplace,TA)
 {
-	if(TA == 0 || attacker==victim || ((get_user_flags(attacker)&ADMIN_IMMUNITY) && get_pcvar_num(g_dod_tkrevenge_obeyimmunity) == 1))
+	static param[4]
+	if( get_pcvar_num(g_dod_tkrevenge_enabled) )
 	{
-		return PLUGIN_CONTINUE
-	}
-	new meleeta = 0
-	if(get_pcvar_num(g_dod_tkrevenge_enabled) == 1)
-	{
-		if(get_pcvar_num(g_dod_tkrevenge_meleeslay) == 1)
+		if( !TA || attacker==victim || ((get_user_flags(attacker) & ADMIN_IMMUNITY) && get_pcvar_num(g_dod_tkrevenge_obeyimmunity)) )
 		{
-			if(wpnindex == DODW_GARAND_BUTT || wpnindex == DODW_K43_BUTT || wpnindex == DODW_KAR_BAYONET || wpnindex == DODW_AMERKNIFE || wpnindex == DODW_BRITKNIFE || wpnindex == DODW_GERKNIFE || wpnindex == DODW_SPADE || wpnindex == DODW_ENFIELD_BAYONET)
-			{
-				meleeta = 1
-				new param[4]
-				param[0] = victim
-				param[1] = attacker
-				param[2] = wpnindex
-				param[3] = damage
-				set_task(0.1,"melee_attack_handle",0,param,4)
-			}
+			return
 		}
-		if(get_pcvar_num(g_dod_tkrevenge_spawnprotect) == 1 && meleeta == 0)
+		
+		switch( wpnindex )
 		{
-			get_user_origin(victim,killorigin[victim])
-			if(get_distance(killorigin[victim],spawnorigin[victim]) < get_pcvar_num(g_dod_tkrevenge_spawndistance))
+			case DODW_GARAND_BUTT, DODW_K43_BUTT, DODW_KAR_BAYONET, DODW_AMERKNIFE, DODW_BRITKNIFE, DODW_GERKNIFE, DODW_SPADE, DODW_ENFIELD_BAYONET:
 			{
-				spawned[victim] = 1
-				if(is_user_alive(victim) == 1 && get_pcvar_num(g_dod_tkrevenge_spawntahandle) == 1)
+				melee_attacked[victim] = 1
+				if( get_pcvar_num(g_dod_tkrevenge_meleeslay) )
 				{
-					new param[4]
 					param[0] = victim
 					param[1] = attacker
 					param[2] = wpnindex
 					param[3] = damage
+					set_task(0.1,"melee_slay_attacker",0,param,4)
+				}
+			}
+		}
+		
+		get_user_origin(victim,killorigin[victim])
+		if( (spawn_attacked[victim] = (get_distance(killorigin[victim],spawnorigin[victim]) < get_pcvar_num(g_dod_tkrevenge_spawndistance))) )
+		{
+			switch( get_pcvar_num(g_dod_tkrevenge_spawntahandle) )
+			{
+				case 1:
+				{
+					param[0] = victim
+					param[1] = attacker
+					param[2] = wpnindex
+					param[3] = damage
+					if( !is_user_alive(victim) )
+					{
+						param[3] = 300
+						new victimname[32], attackername[32]
+						get_user_name(victim,victimname,31)
+						get_user_name(attacker,attackername,31)
+						client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYSPAWNKILL",attackername,victimname)
+					}
 					set_task(0.0,"change_health",0,param,4)
 				}
-				else if(is_user_alive(victim) == 1 && is_user_alive(attacker) == 1 && get_pcvar_num(g_dod_tkrevenge_spawntahandle) == 2)
+				case 2:
 				{
-					new victimname[32]
+					new victimname[32], attackername[32]
 					get_user_name(victim,victimname,31)
-					new attackername[32]
 					get_user_name(attacker,attackername,31)
 					client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYSPAWNATTACK",attackername,victimname)
-					new killerid = attacker
-					set_task(0.1,"kill_teamkiller",killerid)
+					set_task(0.1,"kill_teamkiller",attacker)
 				}
 			}
-			else
+		}
+		
+		if( get_pcvar_num(g_dod_tkrevenge_tasequaltk) > 0 )
+		{
+			if(wpnindex != DODW_HANDGRENADE && wpnindex != DODW_STICKGRENADE && wpnindex != DODW_MILLS_BOMB)
 			{
-				spawned[victim] = 0
+				tacount[attacker]++
+				checktaer(attacker)
 			}
 		}
 	}
-	if(get_pcvar_num(g_dod_tkrevenge_tasequaltk) != 0)
-	{
-		if(wpnindex != DODW_HANDGRENADE && wpnindex != DODW_STICKGRENADE && wpnindex != DODW_MILLS_BOMB)
-		{
-			tacount[attacker]++
-			checktaer(attacker)
-		}
-	}
-	return PLUGIN_CONTINUE
 }
 
 public change_health(param[])
 {
-	if(is_user_alive(param[0]) == 1)
+	// Restore Victim Health
+	if( is_user_alive(param[0]) ) // Victim
 	{
 		set_user_health(param[0],get_user_health(param[0]) + param[3])
 	}
+	
+	// Mirror Damage
 	new dmgaddition = get_pcvar_num(g_dod_tkrevenge_addmirrordmg)
-	if(is_user_alive(param[1]) == 1)
+	if( is_user_alive(param[1]) )  // Attacker
 	{
-		new oldhealth = get_user_health(param[1])
-		if(oldhealth > (param[3] + dmgaddition))
+		if( get_user_health(param[1]) > (param[3] + dmgaddition) )
 		{
 			set_user_health(param[1],get_user_health(param[1]) - (param[3] + dmgaddition))
 		}
-		else if(oldhealth <= (param[3] + dmgaddition))
+		else
 		{
-			new killerid = param[1]
-			kill_teamkiller(killerid)
+			kill_teamkiller(param[1])
 		}
 	}
 }
 
 public player_died()
 {
-	new param[4]
+	static param[4]
 	param[1] = read_data(1)
 	param[0] = read_data(2)
 	param[2] = read_data(3)
@@ -808,758 +832,415 @@ public player_died()
 		{
 			param[3] = 1
 		}
-		set_task(0.1,"player_teamkill",0,param,4)
+		set_task(0.1,"player_died2",0,param,4)
 	}
-	return PLUGIN_CONTINUE
 }
 
-public player_teamkill(param[])
+public player_died2(param[])
 {
-	new killer = param[1]
-	new victim = param[0]
-	new TK = param[3]
+	static killer, victim, TK
+	killer = param[1]
+	victim = param[0]
+	TK = param[3]
 	
-	if(killer==victim || (is_user_bot(victim) == 1 && is_user_bot(killer) == 1 || is_user_connected(killer) == 0))
+	if(killer==victim || (is_user_bot(victim) && is_user_bot(killer) || !is_user_connected(killer)))
 	{
-		return PLUGIN_CONTINUE
+		return
 	}
-	if(get_user_flags(killer)&ADMIN_IMMUNITY && get_pcvar_num(g_dod_tkrevenge_obeyimmunity) == 1)
+	
+	if(get_pcvar_num(g_dod_tkrevenge_novictimdeath) == 1 && TK == 1)
 	{
-		if(get_pcvar_num(g_dod_tkrevenge_novictimdeath) == 1 && TK == 1)
+		dod_set_pl_deaths(victim,(dod_get_pl_deaths(victim) - 1))
+	}
+
+	if( get_pcvar_num(g_dod_tkrevenge_enabled) )
+	{
+		if( get_user_flags(killer) & ADMIN_IMMUNITY && get_pcvar_num(g_dod_tkrevenge_obeyimmunity) )
 		{
-			new victimdeaths = dod_get_pl_deaths(victim)
-			dod_set_pl_deaths(victim,(victimdeaths -= 1))
+			return
 		}
-		return PLUGIN_CONTINUE
-	}
-	if(TK == 0)
-	{
-		if(is_user_bot(killer) == 0 && get_pcvar_num(g_dod_tkrevenge_karmareducetk) != 0)
+		
+		if( TK )
 		{
-			new addkarma = get_pcvar_num(g_dod_tkrevenge_killkarma)
-			karma[killer] += addkarma
-			new player = killer
-			checkkarma(player)
-			return PLUGIN_CONTINUE
+			set_task(0.2,"handle_tk",0,param,3)
 		}
-	}
-	else if(TK == 1)
-	{
-		if(get_pcvar_num(g_dod_tkrevenge_spawnprotect) == 1)
+		else
 		{
-			get_user_origin(victim,killorigin[victim])
-			if(get_distance(killorigin[victim],spawnorigin[victim]) < get_pcvar_num(g_dod_tkrevenge_spawndistance))
+			if(!is_user_bot(killer) && get_pcvar_num(g_dod_tkrevenge_karmareducetk) )
 			{
-				spawned[victim] = 1
-			}
-			else
-			{
-				spawned[victim] = 0
+				karma[killer] += get_pcvar_num(g_dod_tkrevenge_killkarma)
+				checkkarma(killer)
 			}
 		}
-		set_task(0.2,"death_handle",0,param,3)
 	}
-	return PLUGIN_CONTINUE
+	return
 }
 
-public death_handle(param[])
+public handle_tk(param[])
 {
 	new victim = param[0]
 	new killer = param[1]
 	new wpnindex = param[2]
-	new id = victim
-	teamkiller[id] = killer
-	if(spawned[victim] == 1 && meleetk[killer] == 0)
+	// new victimname[32], killername[32]
+
+	teamkiller[victim] = killer
+	karma[killer] = 0
+	
+	// Determine punishment if not forgiven
+	if( spawn_attacked[victim] )
 	{
-		new victimname[32]
-		get_user_name(victim,victimname,31)
-		new killername[32]
-		get_user_name(killer,killername,31)
-		if(is_user_alive(killer) == 1)
-		{
-			client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYSPAWNKILL",killername,victimname)
-			new killerid = killer
-			set_task(0.1,"kill_teamkiller",killerid)
-		}
-		else if(is_user_alive(killer) == 0)
-		{
-			client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SPAWNTKCOUNT",killername,victimname)
-		}
-		new spawntkcount = get_pcvar_num(g_dod_tkrevenge_spawntkcount)
-		tkcount[killer] += spawntkcount
-		karma[killer] = 0
-		checktker(id)	
+		tk_punishment[killer] = get_pcvar_num(g_dod_tkrevenge_spawntkcount)
 	}
-	else if(spawned[victim] == 1 && meleetk[killer] == 1)
+	else if( melee_attacked[victim] )
 	{
-		meleetk[killer] = 0
+		tk_punishment[killer] = get_pcvar_num(g_dod_tkrevenge_meleetkcount)
 	}
-	if(is_user_bot(victim) == 1 && get_pcvar_num(g_dod_tkrevenge_enabled) == 1)
+	else
 	{
-		new victimname[32]
-		get_user_name(victim,victimname,31)
-		new killername[32]
-		get_user_name(killer,killername,31)
-		if(get_pcvar_num(g_dod_tkrevenge_botaction) == 0)
+		tk_punishment[killer] = 1
+	}
+	
+	if( killer == 1)
+	{
+		server_print("melee:  %d >><< spawn:  %d", melee_attacked[victim], spawn_attacked[victim]);
+	}
+
+	// Handle if spawn tk (if cvar enabled)
+	// if( spawn_attacked[victim] && !melee_attacked[victim] )
+	// {
+		// get_user_name(victim,victimname,31)
+		// get_user_name(killer,killername,31)
+		// if( is_user_alive(killer) )
+		// {
+			// client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYSPAWNKILL",killername,victimname)
+			// set_task(0.1,"kill_teamkiller",killer)
+		// }
+		// else
+		// {
+			// client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SPAWNTKCOUNT",killername,victimname)
+		// }
+	// }
+	
+	// Check for nade kill
+	switch( wpnindex )
+	{
+		case DODW_HANDGRENADE, DODW_STICKGRENADE, DODW_MILLS_BOMB:
 		{
-			karma[killer] = 0
-		}
-		else if(get_pcvar_num(g_dod_tkrevenge_botaction) == 1)
-		{
-			if(is_user_alive(killer) == 0 || get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 0)
-			{
-				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"HUGANDFORGIVE",victimname,killername)
-				karma[killer] = 0
-			}
-			else if(is_user_alive(killer) == 1 && get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 1)
-			{
-				client_print(0,print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAPANDFORGIVE",victimname,killername)
-				user_slap(killer,0)
-				karma[killer] = 0
-			}
-		}
-		else if(get_pcvar_num(g_dod_tkrevenge_botaction) == 2)
-		{
-			if(is_user_alive(killer) == 0)
-			{
-				karma[killer] = 0
-			}
-			else if(is_user_alive(killer) == 1)
-			{
-				if(get_pcvar_num(g_dod_tkrevenge_enableglow) == 1)
-				{
-					client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"GLOWANDONEHP",victimname,killername)
-					if(get_user_team(killer) == 1)
-					{
-						set_user_rendering(killer,kRenderFxGlowShell,0,255,0,kRenderNormal,25)
-						tkillglow[killer] = 1
-					}
-					else if(get_user_team(killer) == 2)
-					{
-						set_user_rendering(killer,kRenderFxGlowShell,255,0,0,kRenderNormal,25)
-						tkillglow[killer] = 1
-					}
-				}
-				else if(get_pcvar_num(g_dod_tkrevenge_enableglow) == 0)
-				{
-					client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"JUSTONEHP",victimname,killername)
-				}
-				set_user_health(killer,1)
-				karma[killer] = 0
-			}
-		}
-		else if(get_pcvar_num(g_dod_tkrevenge_botaction) == 3)
-		{
-			if(wpnindex == DODW_HANDGRENADE || wpnindex == DODW_STICKGRENADE || wpnindex == DODW_MILLS_BOMB)
-			{
-				if(get_pcvar_num(g_dod_tkrevenge_nadetkcount) == 0)
-				{
-					nadetk[killer] = 1
-				}
-				else if(get_pcvar_num(g_dod_tkrevenge_nadetkcount) == 1)
-				{
-					nadetk[killer] = 0
-				}
-			}
-			if(meleetk[killer] == 0 && spawned[victim] == 0)
-			{
-				if(is_user_alive(killer) == 0)
-				{
-					if(nadetk[killer] == 0)
-					{
-						client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKCOUNTINCREASED",killername,victimname)
-						karma[killer] = 0
-						if(spawned[victim] == 0)
-						{
-							tkcount[killer]++
-						}
-						else if(spawned[victim] == 1)
-						{
-							new spawntkcount = get_pcvar_num(g_dod_tkrevenge_spawntkcount)
-							tkcount[killer] += spawntkcount
-						}
-						checktker(id)
-					}
-					else if(nadetk[killer] == 1)
-					{
-						karma[killer] = 0
-					}
-				}
-				else if(is_user_alive(killer) == 1)
-				{
-					client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYEDFORTK",victimname,killername)
-					new killerid = killer
-					set_task(0.1,"kill_teamkiller",killerid)
-					if(nadetk[killer] == 0)
-					{
-						karma[killer] = 0
-						if(spawned[victim] == 0)
-						{
-							tkcount[killer]++
-						}
-						else if(spawned[victim] == 1)
-						{
-							new spawntkcount = get_pcvar_num(g_dod_tkrevenge_spawntkcount)
-							tkcount[killer] += spawntkcount
-						}
-						checktker(id)
-					}
-				}
-			}
-			else if(meleetk[killer] == 1)
-			{
-				meleetk[killer] = 0
-			}
-		}
-		else if(get_pcvar_num(g_dod_tkrevenge_botaction) == 4)
-		{
-			if(is_user_alive(killer) == 0)
-			{
-				karma[killer] = 0
-				return PLUGIN_HANDLED
-			}
-			else if(is_user_alive(killer) == 1)
-			{
-				client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAPPEDFORTK",victimname,killername)
-				new health = get_user_health(killer)
-				new slappower = health/2
-				user_slap(killer,slappower)
-				karma[killer] = 0
-			}
-		}
-		else if(get_pcvar_num(g_dod_tkrevenge_botaction) == 5)
-		{
-			if(wpnindex == DODW_HANDGRENADE || wpnindex == DODW_STICKGRENADE || wpnindex == DODW_MILLS_BOMB){
-				if(get_pcvar_num(g_dod_tkrevenge_nadetkcount) == 0)
-				{
-					nadetk[killer] = 1
-				}
-				else if(get_pcvar_num(g_dod_tkrevenge_nadetkcount) == 1)
-				{
-					nadetk[killer] = 0
-				}
-			}
-			if(meleetk[killer] == 0 && spawned[victim] == 0)
-			{
-				if(nadetk[killer] == 0)
-				{
-					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"NOTFORGIVENTK",victimname,killername)
-					karma[killer] = 0
-					if(spawned[victim] == 0)
-					{
-						tkcount[killer]++
-					}
-					else if(spawned[victim] == 1)
-					{
-						new spawntkcount = get_pcvar_num(g_dod_tkrevenge_spawntkcount)
-						tkcount[killer] += spawntkcount
-					}
-					checktker(id)
-				}
-				else if(nadetk[killer] == 1)
-				{
-					karma[killer] = 0
-				}
-			}
-			else if(meleetk[killer] == 1)
-			{
-				meleetk[killer] = 0
-			}
+			nadetk[killer] = !get_pcvar_num(g_dod_tkrevenge_nadetkcount)  // ignore tk by nade if cvar is true
 		}
 	}
-	if(is_user_bot(victim) == 0 && get_pcvar_num(g_dod_tkrevenge_enabled) == 1)
+
+	if( is_user_bot(victim) )
 	{
-		if(wpnindex == DODW_HANDGRENADE || wpnindex == DODW_STICKGRENADE || wpnindex == DODW_MILLS_BOMB)
-		{
-			if(get_pcvar_num(g_dod_tkrevenge_nadetkcount) == 0)
-			{
-				nadetk[killer] = 1
-			}
-			else if(get_pcvar_num(g_dod_tkrevenge_nadetkcount) == 1)
-			{
-				nadetk[killer] = 0
-			}
-		}
-		karma[killer] = 0
-		if(meleetk[killer] == 0 && spawned[victim] == 0)
-		{
-			set_task(0.3,"tkrevenge_menu",0,param,2)
-		}
-		if(meleetk[killer] == 1)
-		{
-			meleetk[killer] = 0
-		}
+		set_task(5.0, "execBotAction", victim + 12121)  // Emulate bot selecting an action from the revenge menu
 	}
-	if(get_pcvar_num(g_dod_tkrevenge_novictimdeath) == 1)
+	else
 	{
-		new victimdeaths = dod_get_pl_deaths(victim)
-		dod_set_pl_deaths(victim,(victimdeaths -= 1))
+		set_task(0.3,"tkrevenge_menu",0,param,2)  // Show revenge menu
 	}
-	return PLUGIN_CONTINUE
 }
 
-public melee_attack_handle(param[])
+public execBotAction(id)
 {
-	new meleeattacker[32]
-	new meleevictim[32]
-	new meleelogname[32]
-	new meleewpnname[32]
-	get_user_name(param[1],meleeattacker,31)
-	get_user_name(param[0],meleevictim,31)
+	new iBotAction = get_pcvar_num(g_dod_tkrevenge_botaction)
+	if( iBotAction )
+	{
+		tkrevenge_options(id - 12121, -iBotAction)
+	}
+}
+
+public melee_slay_attacker(param[])
+{
+	static meleeattacker[32]
+	static meleevictim[32]
+	static meleelogname[32]
+	static meleewpnname[32]
+	static victimid, killerid
+	victimid = param[0]
+	killerid = param[1]
+	
+	get_user_name(killerid,meleeattacker,31)
+	get_user_name(victimid,meleevictim,31)
 	xmod_get_wpnlogname(param[2],meleelogname,31)
 	dod_wpnlog_to_name(meleelogname,meleewpnname,31)
-	new killerid = param[1]
+
 	kill_teamkiller(killerid)
-	if(is_user_alive(param[0]) == 1)
+	karma[killerid] = 0
+
+	if( is_user_alive(victimid) )
 	{
 		client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"MELEETASLAY",meleeattacker,meleevictim,meleewpnname)
-		karma[param[1]] = 0
-		if(get_pcvar_num(g_dod_tkrevenge_spawntahandle) == 1 && spawned[param[0]] == 1)
+		if( get_pcvar_num(g_dod_tkrevenge_spawntahandle) == 1 && spawn_attacked[victimid] )
 		{
 			set_task(0.0,"change_health",0,param,4)
 		}
 	}
-	else if(is_user_alive(param[0]) == 0)
+	else
 	{
-		meleetk[param[1]] = 1
-		new id = param[0]
-		teamkiller[id] = param[1]
-		if(spawned[id] == 0)
-		{
-			new meleetkcount = get_pcvar_num(g_dod_tkrevenge_meleetkcount)
-			tkcount[teamkiller[id]] += meleetkcount
-		}
-		else if(spawned[id] == 1)
-		{
-			new spawntkcount = get_pcvar_num(g_dod_tkrevenge_spawntkcount)
-			tkcount[teamkiller[id]] += spawntkcount
-		}
-		checktker(id)
-		karma[param[1]] = 0
 		client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"MELEETKSLAY",meleeattacker,meleevictim,meleewpnname)
 	}
 }
 
 public tkrevenge_menu(param[])
 {
-	if(get_pcvar_num(g_dod_tkrevenge_options) == 1)
+	static revenge_menu[1024]
+	static key
+	static tkername[32]
+	static victim, killer
+	victim = param[0]
+	killer = param[1]
+	
+	get_user_name(killer,tkername,31)
+	
+	switch( get_pcvar_num(g_dod_tkrevenge_options) )
 	{
-		new revenge_menu[1024]
-		new key
-		new tkername[32]
-		get_user_name(param[1],tkername,31)
-		if(get_pcvar_num(g_dod_tkrevenge_enableglow) == 1)
+		case 1:
 		{
-			format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n\y3.\w %L^n^nKiller: %s",param[0],"MENUFORGIVE",param[0],"MENUGLOWANDONEHP",param[0],"MENUSLAY",tkername)
+			if( get_pcvar_num(g_dod_tkrevenge_enableglow) )
+			{
+				format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n\y3.\w %L^n^nKiller: %s",victim,"MENUFORGIVE",victim,"MENUGLOWANDONEHP",victim,"MENUSLAY",tkername)
+			}
+			else
+			{
+				format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n\y3.\w %L^n^nKiller: %s",victim,"MENUFORGIVE",victim,"MENUJUSTONEHP",victim,"MENUSLAY",tkername)
+			}
+			key = (1<<0)|(1<<1)|(1<<2)
 		}
-		else if(get_pcvar_num(g_dod_tkrevenge_enableglow) == 0)
+		case 2:
 		{
-			format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n\y3.\w %L^n^nKiller: %s",param[0],"MENUFORGIVE",param[0],"MENUJUSTONEHP",param[0],"MENUSLAY",tkername)
+			format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n^nKiller: %s",victim,"MENUFORGIVE",victim,"MENUSLAY",tkername)
+			key = (1<<0)|(1<<1)
 		}
-		key = (1<<0)|(1<<1)|(1<<2)
-		show_menu(param[0],key,revenge_menu)
-		if(get_user_team(param[0]) == 1)
+		case 3:
 		{
-			client_cmd(param[0],"spk Gman/Gman_Choose1")
+			format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n\y3.\w %L^n^nKiller: %s",victim,"MENUFORGIVE",victim,"MENUSLAP",victim,"MENUSLAY",tkername)
+			key = (1<<0)|(1<<1)|(1<<2)
 		}
-		else if(get_user_team(param[0]) == 2)
+		case 4:
 		{
-			client_cmd(param[0],"spk Gman/Gman_Choose2")
+			if( nadetk[killer] && !get_pcvar_num(g_dod_tkrevenge_nadetkcount) )
+			{
+				return
+			}
+			format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n^nKiller: %s",victim,"MENUFORGIVE",victim,"MENUDONTFORGIVE",tkername)
+			key = (1<<0)|(1<<1)
 		}
-		return PLUGIN_CONTINUE
 	}
-	else if(get_pcvar_num(g_dod_tkrevenge_options) == 2)
+
+	show_menu(victim,key,revenge_menu)
+
+	switch( get_user_team(victim) )
 	{
-		new revenge_menu[1024]
-		new key
-		new tkername[32]
-		get_user_name(param[1],tkername,31)
-		format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n^nKiller: %s",param[0],"MENUFORGIVE",param[0],"MENUSLAY",tkername)
-		key = (1<<0)|(1<<1)
-		show_menu(param[0],key,revenge_menu)
-		if(get_user_team(param[0]) == 1)
-		{
-			client_cmd(param[0],"spk Gman/Gman_Choose1")
-		}
-		else if(get_user_team(param[0]) == 2)
-		{
-			client_cmd(param[0],"spk Gman/Gman_Choose2")
-		}
-		return PLUGIN_CONTINUE
+		case ALLIES: client_cmd(victim,"spk Gman/Gman_Choose1")
+		case AXIS: client_cmd(victim,"spk Gman/Gman_Choose2")
 	}
-	else if(get_pcvar_num(g_dod_tkrevenge_options) == 3)
-	{
-		new revenge_menu[1024]
-		new key
-		new tkername[32]
-		get_user_name(param[1],tkername,31)
-		format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n\y3.\w %L^n^nKiller: %s",param[0],"MENUFORGIVE",param[0],"MENUSLAP",param[0],"MENUSLAY",tkername)
-		key = (1<<0)|(1<<1)|(1<<2)
-		show_menu(param[0],key,revenge_menu)
-		if(get_user_team(param[0]) == ALLIES)
-		{
-			client_cmd(param[0],"spk Gman/Gman_Choose1")
-		}
-		else if(get_user_team(param[0]) == AXIS)
-		{
-			client_cmd(param[0],"spk Gman/Gman_Choose2")
-		}
-		return PLUGIN_CONTINUE
-	}
-	else if(get_pcvar_num(g_dod_tkrevenge_options) == 4)
-	{
-		if(nadetk[param[1]] == 1 && get_pcvar_num(g_dod_tkrevenge_nadetkcount) == 0)
-		{
-			return PLUGIN_CONTINUE
-		}
-		new revenge_menu[1024]
-		new key
-		new tkername[32]
-		get_user_name(param[1],tkername,31)
-		format(revenge_menu,1023,"\rDoD TK Revenge\R^n^n\y1.\w %L^n\y2.\w %L^n^nKiller: %s",param[0],"MENUFORGIVE",param[0],"MENUDONTFORGIVE",tkername)
-		key = (1<<0)|(1<<1)
-		show_menu(param[0],key,revenge_menu)
-		if(get_user_team(param[0]) == 1)
-		{
-			client_cmd(param[0],"spk Gman/Gman_Choose1")
-		}
-		else if(get_user_team(param[0]) == 2)
-		{
-			client_cmd(param[0],"spk Gman/Gman_Choose2")
-		}
-		return PLUGIN_CONTINUE
-	}
-	return PLUGIN_CONTINUE
 }
 
 public tkrevenge_options(id,key)
 {
-	if(teamkiller[id] == 0)
+	if( !teamkiller[id] )
 	{
 		client_print(id,print_chat,"[DoD TK Revenge] %L",id,"TEAMKILLERGONE")
 		return PLUGIN_HANDLED
 	}
-	new victimname[32]
-	get_user_name(id,victimname,31)
-	new killername[32]
-	get_user_name(teamkiller[id],killername,31)
-	if(get_pcvar_num(g_dod_tkrevenge_options) == 1)
+
+	// Player Options
+	switch( get_pcvar_num(g_dod_tkrevenge_options) )
 	{
-		switch(key)
+		case 1:
 		{
-			case 0:
+			switch(key)
 			{
-				if(is_user_alive(teamkiller[id]) == 0 || get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 0)
-				{
-					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"HUGANDFORGIVE",victimname,killername)
-					return PLUGIN_HANDLED
-				}
-				else if(is_user_alive(teamkiller[id]) == 1 && get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 1)
-				{
-					client_print(0,print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAPANDFORGIVE",victimname,killername)
-					user_slap(teamkiller[id],0)
-				}
+				case 0: revenge_forgive(teamkiller[id], id)
+				case 1: revenge_1HP_Glow(teamkiller[id], id)
+				case 2: revenge_slay(teamkiller[id], id, tk_punishment[teamkiller[id]])
 			}
-			case 1:
+		}
+		case 2:
+		{
+			switch(key)
 			{
-				if(is_user_alive(teamkiller[id]) == 0)
-				{
-					client_print(id,print_chat,"[DoD TK Revenge] %L",id,"TEAMKILLERDEAD",victimname,killername)
-					return PLUGIN_HANDLED
-				}
-				else if(is_user_alive(teamkiller[id]) == 1)
-				{
-					if(get_pcvar_num(g_dod_tkrevenge_enableglow) == 1)
-					{
-						client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"GLOWANDONEHP",victimname,killername)
-						if(get_user_team(teamkiller[id]) == ALLIES)
-						{
-							set_user_rendering(teamkiller[id],kRenderFxGlowShell,0,255,0,kRenderNormal,25)
-							tkillglow[teamkiller[id]] = 1
-						}
-						else if(get_user_team(teamkiller[id]) == AXIS)
-						{
-							set_user_rendering(teamkiller[id],kRenderFxGlowShell,255,0,0,kRenderNormal,25)
-							tkillglow[teamkiller[id]] = 1
-						}
-					}
-					else if(get_pcvar_num(g_dod_tkrevenge_enableglow) == 0)
-					{
-						client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"JUSTONEHP",victimname,killername)
-					}
-					set_user_health(teamkiller[id],1)
-					
-				}
+				case 0: revenge_forgive(teamkiller[id], id)
+				case 1: revenge_slay(teamkiller[id], id, tk_punishment[teamkiller[id]])
 			}
-			case 2:
+		}
+		case 3:
+		{
+			switch(key)
 			{
-				if(is_user_alive(teamkiller[id]) == 0)
-				{
-					if(is_user_bot(teamkiller[id]) == 0)
-					{
-						if(nadetk[teamkiller[id]] == 0)
-						{
-							if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 1)
-							{
-								respawnslay[teamkiller[id]] = 1
-								client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYAFTERRESPAWN",killername,victimname)
-							}
-							else if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 0)
-							{
-								client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKCOUNTINCREASED",killername,victimname)
-							}
-							tkcount[teamkiller[id]]++
-							checktker(id)
-							return PLUGIN_HANDLED
-						}
-						else if(nadetk[teamkiller[id]] == 1)
-						{
-							if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 1)
-							{
-								respawnslay[teamkiller[id]] = 1
-								client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYAFTERRESPAWN",killername,victimname)
-							}
-							else if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 0)
-							{
-								client_print(id,print_chat,"[DoD TK Revenge] %L",id,"TEAMKILLERDEAD",victimname,killername)
-							}
-							return PLUGIN_HANDLED
-						}
-					}
-					else if(is_user_bot(teamkiller[id]) == 1)
-					{
-						client_print(id,print_chat,"[DoD TK Revenge] %L",id,"TEAMKILLERDEAD",victimname,killername)
-					}
-				}
-				else if(is_user_alive(teamkiller[id]) == 1)
-				{
-					client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYEDFORTK",victimname,killername)
-					new killerid = teamkiller[id]
-					kill_teamkiller(killerid)
-					if(nadetk[teamkiller[id]] == 0 && is_user_bot(teamkiller[id]) == 0)
-					{
-						tkcount[teamkiller[id]]++
-						checktker(id)
-					}
-				}
+				case 0: revenge_forgive(teamkiller[id], id)
+				case 1: revenge_slap50(teamkiller[id], id)
+				case 2: revenge_slay(teamkiller[id], id, tk_punishment[teamkiller[id]])
+			}
+		}
+		case 4:
+		{
+			switch(key)
+			{
+				case 0: revenge_forgive(teamkiller[id], id)
+				case 1: revenge_dontforgive(teamkiller[id], id, tk_punishment[teamkiller[id]])
 			}
 		}
 	}
-	else if(get_pcvar_num(g_dod_tkrevenge_options) == 2)
+
+	// Bot Options
+	switch(key)
 	{
-		switch(key)
-		{
-			case 0:
-			{
-				if(is_user_alive(teamkiller[id]) == 0 || get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 0)
-				{
-					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"HUGANDFORGIVE",victimname,killername)
-					return PLUGIN_HANDLED
-				}
-				else if(is_user_alive(teamkiller[id]) == 1 && get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 1)
-				{
-					client_print(0,print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAPANDFORGIVE",victimname,killername)
-					user_slap(teamkiller[id],0)
-				}
-			}
-			case 1:
-			{
-				if(is_user_alive(teamkiller[id]) == 0)
-				{
-					if(is_user_bot(teamkiller[id]) == 0)
-					{
-						if(nadetk[teamkiller[id]] == 0)
-						{
-							if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 1)
-							{
-								respawnslay[teamkiller[id]] = 1
-								client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYAFTERRESPAWN",killername,victimname)
-							}
-							else if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 0)
-							{
-								client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKCOUNTINCREASED",killername,victimname)
-							}
-							tkcount[teamkiller[id]]++
-							checktker(id)
-							return PLUGIN_HANDLED
-						}
-						else if(nadetk[teamkiller[id]] == 1)
-						{
-							if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 1)
-							{
-								respawnslay[teamkiller[id]] = 1
-								client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYAFTERRESPAWN",killername,victimname)
-							}
-							else if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 0)
-							{
-								client_print(id,print_chat,"[DoD TK Revenge] %L",id,"TEAMKILLERDEAD",victimname,killername)
-							}
-							return PLUGIN_HANDLED
-						}
-					}
-					else if(is_user_bot(teamkiller[id]) == 1)
-					{
-						client_print(id,print_chat,"[DoD TK Revenge] %L",id,"TEAMKILLERDEAD",victimname,killername)
-					}
-				}
-				else if(is_user_alive(teamkiller[id]) == 1)
-				{
-					client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYEDFORTK",victimname,killername)
-					new killerid = teamkiller[id]
-					kill_teamkiller(killerid)
-					if(nadetk[teamkiller[id]] == 0 && is_user_bot(teamkiller[id]) == 0)
-					{
-						tkcount[teamkiller[id]]++
-						checktker(id)
-					}
-				}
-			}
-		}
-	}
-	if(get_pcvar_num(g_dod_tkrevenge_options) == 3)
-	{
-		switch(key)
-		{
-			case 0:
-			{
-				if(is_user_alive(teamkiller[id]) == 0 || get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 0)
-				{
-					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"HUGANDFORGIVE",victimname,killername)
-					return PLUGIN_HANDLED
-				}
-				else if(is_user_alive(teamkiller[id]) == 1 && get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 1)
-				{
-					client_print(0,print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAPANDFORGIVE",victimname,killername)
-					user_slap(teamkiller[id],0)
-				}
-			}
-			case 1:
-			{
-				if(is_user_alive(teamkiller[id]) == 0)
-				{
-					client_print(id,print_chat,"[DoD TK Revenge] %L",id,"TEAMKILLERDEAD",victimname,killername)
-					return PLUGIN_HANDLED
-				}
-				else if(is_user_alive(teamkiller[id]) == 1)
-				{
-					client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAPPEDFORTK",victimname,killername)
-					new health = get_user_health(teamkiller[id])
-					new slappower = health/2
-					user_slap(teamkiller[id],slappower)
-				}
-			}
-			case 2:
-			{
-				if(is_user_alive(teamkiller[id]) == 0)
-				{
-					if(is_user_bot(teamkiller[id]) == 0)
-					{
-						if(nadetk[teamkiller[id]] == 0)
-						{
-							if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 1)
-							{
-								respawnslay[teamkiller[id]] = 1
-								client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYAFTERRESPAWN",killername,victimname)
-							}
-							else if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 0)
-							{
-								client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKCOUNTINCREASED",killername,victimname)
-							}
-							tkcount[teamkiller[id]]++
-							checktker(id)
-							return PLUGIN_HANDLED
-						}
-						else if(nadetk[teamkiller[id]] == 1)
-						{
-							if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 1)
-							{
-								respawnslay[teamkiller[id]] = 1
-								client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYAFTERRESPAWN",killername,victimname)
-							}
-							else if(get_pcvar_num(g_dod_tkrevenge_respawnslay) == 0)
-							{
-								client_print(id,print_chat,"[DoD TK Revenge] %L",id,"TEAMKILLERDEAD",victimname,killername)
-							}
-							return PLUGIN_HANDLED
-						}
-					}
-					else if(is_user_bot(teamkiller[id]) == 1)
-					{
-						client_print(id,print_chat,"[DoD TK Revenge] %L",id,"TEAMKILLERDEAD",victimname,killername)
-					}
-				}
-				else if(is_user_alive(teamkiller[id]) == 1)
-				{
-					client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYEDFORTK",victimname,killername)
-					new killerid = teamkiller[id]
-					kill_teamkiller(killerid)
-					if(nadetk[teamkiller[id]] == 0 && is_user_bot(teamkiller[id]) == 0)
-					{
-						tkcount[teamkiller[id]]++
-						checktker(id)
-					}
-				}
-			}
-		}
-	}
-	else if(get_pcvar_num(g_dod_tkrevenge_options) == 4)
-	{
-		switch(key)
-		{
-			case 0:
-			{
-				if(is_user_alive(teamkiller[id]) == 0 || get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 0)
-				{
-					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"HUGANDFORGIVE",victimname,killername)
-					return PLUGIN_HANDLED
-				}
-				else if(is_user_alive(teamkiller[id]) == 1 && get_pcvar_num(g_dod_tkrevenge_forgiveslap) == 1)
-				{
-					client_print(0,print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAPANDFORGIVE",victimname,killername)
-					user_slap(teamkiller[id],0)
-				}
-			}
-			case 1:
-			{
-				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"NOTFORGIVENTK",victimname,killername)
-				if(nadetk[teamkiller[id]] == 0 && is_user_bot(teamkiller[id]) == 0){
-					tkcount[teamkiller[id]]++
-					checktker(id)
-				}
-			}
-		}
+		case -1: revenge_forgive(teamkiller[id], id)
+		case -2: revenge_1HP_Glow(teamkiller[id], id)
+		case -3: revenge_slay(teamkiller[id], id, tk_punishment[teamkiller[id]])
+		case -4: revenge_slap50(teamkiller[id], id)
+		case -5: revenge_dontforgive(teamkiller[id], id, tk_punishment[teamkiller[id]])
 	}
 	return PLUGIN_HANDLED
 }
 
-public client_spawn(id)
+revenge_forgive(killerid, victimid)
 {
-	if(tkillglow[id] == 1)
+	new victimname[32], killername[32]
+	get_user_name(victimid, victimname, charsmax(victimname))
+	get_user_name(killerid, killername, charsmax(killername))
+
+	if( get_pcvar_num(g_dod_tkrevenge_forgiveslap) )
 	{
-		set_user_rendering(id,kRenderFxGlowShell,0,0,0,kRenderNormal,25)
-		tkillglow[id] = 0
+		client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAPANDFORGIVE",victimname,killername)
+		user_slap(killerid,0)
 	}
-	if(respawnslay[id] == 1)
+	else
 	{
-		new killerid = id
-		respawnslay[id] = 0
-		new respawnname[32]
-		get_user_name(id,respawnname,31)
-		client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYEDFORPREVIOUSTK",respawnname)
-		set_task(0.1,"kill_teamkiller",killerid)
-		return PLUGIN_CONTINUE
+		client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"HUGANDFORGIVE",victimname,killername)
 	}
-	if(get_pcvar_num(g_dod_tkrevenge_spawnprotect) == 1)
-	{
-		set_task(0.1,"get_spawnorigin",id)
-	}
-	spawned[id] = 0
-	return PLUGIN_CONTINUE
 }
 
-public get_spawnorigin(id)
+revenge_dontforgive(killerid, victimid, punish=1)
 {
-	get_user_origin(id,spawnorigin[id])
+	new victimname[32], killername[32]
+	get_user_name(victimid, victimname, charsmax(victimname))
+	get_user_name(killerid, killername, charsmax(killername))
+
+	client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"NOTFORGIVENTK",victimname,killername)
+	if( !nadetk[killerid] && !is_user_bot(killerid) )
+	{
+		tkcount[killerid] += punish
+		checktker(killerid)
+	}
+}
+
+revenge_1HP_Glow(killerid, victimid)
+{
+	new victimname[32], killername[32]
+	get_user_name(victimid, victimname, charsmax(victimname))
+	get_user_name(killerid, killername, charsmax(killername))
+
+	if( is_user_alive(killerid) )
+	{
+		if( get_pcvar_num(g_dod_tkrevenge_enableglow) )
+		{
+			client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"GLOWANDONEHP",victimname,killername)
+			switch( get_user_team(killerid) )
+			{
+				case ALLIES: set_user_rendering(killerid,kRenderFxGlowShell,0,255,0,kRenderNormal,25)
+				case AXIS: set_user_rendering(killerid,kRenderFxGlowShell,255,0,0,kRenderNormal,25)
+			}
+			tkillglow[killerid] = 1
+		}
+		else
+		{
+			client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"JUSTONEHP",victimname,killername)
+		}
+		set_user_health(killerid,1)
+	}
+	else
+	{
+		client_print(victimid,print_chat,"[DoD TK Revenge] %L",victimid,"TEAMKILLERDEAD",victimname,killername)
+	}
+}
+
+revenge_slap50(killerid, victimid)
+{
+	new victimname[32], killername[32]
+	get_user_name(victimid, victimname, charsmax(victimname))
+	get_user_name(killerid, killername, charsmax(killername))
+
+	if( is_user_alive(killerid) )
+	{
+		client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAPPEDFORTK",victimname,killername)
+		user_slap(killerid, get_user_health(killerid)/2)
+	}
+	else
+	{
+		client_print(victimid,print_chat,"[DoD TK Revenge] %L",victimid,"TEAMKILLERDEAD",victimname,killername)
+	}
+}
+
+revenge_slay(killerid, victimid, punish=1)
+{
+	new victimname[32], killername[32]
+	get_user_name(victimid, victimname, charsmax(victimname))
+	get_user_name(killerid, killername, charsmax(killername))
+
+	if( is_user_alive(killerid) )
+	{
+		client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYEDFORTK",victimname,killername)
+		kill_teamkiller(killerid)
+		if( !nadetk[killerid] && !is_user_bot(killerid))
+		{
+			tkcount[killerid] += punish
+			checktker(killerid)
+		}
+	}
+	else
+	{
+		if( is_user_bot(killerid) )
+		{
+			client_print(victimid,print_chat,"[DoD TK Revenge] %L",victimid,"TEAMKILLERDEAD",victimname,killername)
+		}
+		else
+		{
+			if( get_pcvar_num(g_dod_tkrevenge_respawnslay) )
+			{
+				respawnslay[killerid] = 1
+				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYAFTERRESPAWN",killername,victimname)
+			}
+			else
+			{
+				if( nadetk[killerid] )
+				{
+					client_print(victimid,print_chat,"[DoD TK Revenge] %L",victimid,"TEAMKILLERDEAD",victimname,killername)
+				}
+				else
+				{
+					tkcount[killerid] += punish
+					checktker(killerid)
+					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKCOUNTINCREASED",killername,victimname)
+				}
+			}
+		}
+	}
+}
+
+public client_spawn(id)
+{
+	if( is_user_alive(id) )
+	{
+		if( tkillglow[id] )
+		{
+			set_user_rendering(id,kRenderFxGlowShell,0,0,0,kRenderNormal,25)
+			tkillglow[id] = 0
+		}
+		if( respawnslay[id] )
+		{
+			new respawnname[32]
+			get_user_name(id,respawnname,31)
+			client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYEDFORPREVIOUSTK",respawnname)
+			set_task(0.1,"kill_teamkiller",id)
+		}
+
+		get_user_origin(id,spawnorigin[id])
+		spawn_attacked[id] = 0
+		melee_attacked[id] = 0
+		respawnslay[id] = 0
+	}
 }
 
 public checktaer(attacker)
@@ -1567,7 +1248,7 @@ public checktaer(attacker)
 	new zTAs = get_pcvar_num(g_dod_tkrevenge_tasequaltk)
 	if(tacount[attacker] < zTAs)
 	{
-		if(get_pcvar_num(g_dod_tkrevenge_displaytacount) == 1)
+		if( get_pcvar_num(g_dod_tkrevenge_displaytacount) )
 		{
 			set_hudmessage(255, 153, 1, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
 			show_hudmessage(attacker,"[DoD TK Revenge]^n^n%L",attacker,"HUDTAWARNING",tacount[attacker],zTAs)
@@ -1575,7 +1256,7 @@ public checktaer(attacker)
 	}
 	else if(tacount[attacker] == zTAs)
 	{
-		if(get_pcvar_num(g_dod_tkrevenge_displaytacount) == 1)
+		if( get_pcvar_num(g_dod_tkrevenge_displaytacount) )
 		{
 			set_hudmessage(255, 0, 0, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
 			show_hudmessage(attacker,"[DoD TK Revenge]^n^n%L",attacker,"HUDTAWARNING",tacount[attacker],zTAs)
@@ -1584,100 +1265,96 @@ public checktaer(attacker)
 	else if(tacount[attacker] > zTAs)
 	{
 		tacount[attacker] = 0
-		if(is_user_alive(attacker) == 1)
-		{
-			new killerid = attacker
-			kill_teamkiller(killerid)
-		}
-		new id
-		teamkiller[id] = attacker
-		tkcount[teamkiller[id]]++
-		checktker(id)
-		return PLUGIN_HANDLED
+		// set_task(0.1, "kill_teamkiller", attacker)  // Calling the kill function directly seems to crash the server for some reason.
+		
+		tkcount[attacker]++
+		checktker(attacker)
 	}
-	return PLUGIN_HANDLED
 }
 
 public checktker(id)
 {
 	new zTKs = get_pcvar_num(g_dod_tkrevenge_warnings)
-	if(tkcount[teamkiller[id]] < zTKs)
+	if(tkcount[id] < zTKs)
 	{
-		if(get_pcvar_num(g_dod_tkrevenge_displaytkcount) == 1)
+		if( get_pcvar_num(g_dod_tkrevenge_displaytkcount) )
 		{
 			set_hudmessage(255, 153, 1, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
-			show_hudmessage(teamkiller[id],"[DoD TK Revenge]^n^n%L",teamkiller[id],"HUDTKWARNING",tkcount[teamkiller[id]],zTKs)
+			show_hudmessage(id,"[DoD TK Revenge]^n^n%L",id,"HUDTKWARNING",tkcount[id],zTKs)
 		}
 	}
-	else if(tkcount[teamkiller[id]] == zTKs)
+	else if(tkcount[id] == zTKs)
 	{
-		if(get_pcvar_num(g_dod_tkrevenge_displaytkcount) == 1)
+		if( get_pcvar_num(g_dod_tkrevenge_displaytkcount) )
 		{
 			set_hudmessage(255, 0, 0, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
-			show_hudmessage(teamkiller[id],"[DoD TK Revenge]^n^n%L",teamkiller[id],"HUDTKWARNING",tkcount[teamkiller[id]],zTKs)
+			show_hudmessage(id,"[DoD TK Revenge]^n^n%L",id,"HUDTKWARNING",tkcount[id],zTKs)
 		}
 	}
-	else if (tkcount[teamkiller[id]] > zTKs)
+	else if(tkcount[id] > zTKs)
 	{
 		new tkername[32]
-		get_user_name(teamkiller[id],tkername,31)
-		new zTKMode = get_pcvar_num(g_dod_tkrevenge_ban)
-		if(zTKMode == 0 && is_user_connected(teamkiller[id]))
+		get_user_name(id,tkername,31)
+
+		if( is_user_connected(id) )
 		{
-			client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"KICKEDFORTK",tkername)
-			new tker_userid = get_user_userid(teamkiller[id])
-			server_cmd("kick #%d Excessive TeamKilling",tker_userid)
-		}
-		else if(zTKMode == 1 && is_user_connected(teamkiller[id]))
-		{
-			new Float:tker_bantime = get_cvar_float("dod_tkrevenge_bantime")
-			new tker_bantimeint = get_pcvar_num(g_dod_tkrevenge_bantime)
-			if(get_pcvar_num(g_dod_tkrevenge_useamxbans) == 1)
+			if( get_pcvar_num(g_dod_tkrevenge_ban) )
 			{
-				new tker_authid[32]
-				get_user_authid(teamkiller[id],tker_authid,31)
-				new banreason[128]
-				get_cvar_string("dod_tkrevenge_amxbansreason",banreason,127)
-				server_cmd("amx_ban %d %s %s",tker_bantimeint,tker_authid,banreason)
+				new tker_bantimeint = get_pcvar_num(g_dod_tkrevenge_bantime)
+				if( get_pcvar_num(g_dod_tkrevenge_useamxbans) )
+				{
+					new tker_authid[32]
+					get_user_authid(id,tker_authid,31)
+					new banreason[128]
+					get_cvar_string("dod_tkrevenge_amxbansreason",banreason,127)
+					server_cmd("amx_ban %d %s %s",tker_bantimeint,tker_authid,banreason)
+				}
+				else
+				{
+					new tker_userid = get_user_userid(id)
+					server_cmd("banid %f #%d kick;writeid",float(tker_bantimeint),tker_userid)
+				}
+				
+				if(tker_bantimeint == 0)
+				{
+					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANPERM",tkername)
+					log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANPERM",tkername)
+				}
+				else if(tker_bantimeint < 60 && tker_bantimeint != 0)
+				{
+					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANMINS",tkername,tker_bantimeint)
+					log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANMINS",tkername,tker_bantimeint)
+				}
+				else if(tker_bantimeint > 60 && tker_bantimeint < 1440)
+				{
+					new tker_banhours = tker_bantimeint/60
+					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANHOURS",tkername,tker_banhours)
+					log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANHOURS",tkername,tker_banhours)
+				}
+				else if(tker_bantimeint > 1440 && tker_bantimeint < 10080)
+				{
+					new tker_bandays = tker_bantimeint/1440
+					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANDAYS",tkername,tker_bandays)
+					log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANDAYS",tkername,tker_bandays)
+				}
+				else if(tker_bantimeint > 10080 && tker_bantimeint < 40320)
+				{
+					new tker_banweeks = tker_bantimeint/10080
+					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANWEEKS",tkername,tker_banweeks)
+					log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANWEEKS",tkername,tker_banweeks)
+				}
+				else if(tker_bantimeint > 40320)
+				{
+					new tker_banmonths = tker_bantimeint/40320
+					client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANMONTHS",tkername,tker_banmonths)
+					log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANMONTHS",tkername,tker_banmonths)
+				}
 			}
-			else if(get_pcvar_num(g_dod_tkrevenge_useamxbans) == 0)
+			else
 			{
-				new tker_userid = get_user_userid(teamkiller[id])
-				server_cmd("banid %f #%d kick;writeid",tker_bantime,tker_userid)
-			}
-			if(tker_bantimeint == 0)
-			{
-				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANPERM",tkername)
-				log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANPERM",tkername)
-			}
-			else if(tker_bantimeint < 60 && tker_bantimeint != 0)
-			{
-				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANMINS",tkername,tker_bantimeint)
-				log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANMINS",tkername,tker_bantimeint)
-			}
-			else if(tker_bantimeint > 60 && tker_bantimeint < 1440)
-			{
-				new tker_banhours = tker_bantimeint/60
-				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANHOURS",tkername,tker_banhours)
-				log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANHOURS",tkername,tker_banhours)
-			}
-			else if(tker_bantimeint > 1440 && tker_bantimeint < 10080)
-			{
-				new tker_bandays = tker_bantimeint/1440
-				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANDAYS",tkername,tker_bandays)
-				log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANDAYS",tkername,tker_bandays)
-			}
-			else if(tker_bantimeint > 10080 && tker_bantimeint < 40320)
-			{
-				new tker_banweeks = tker_bantimeint/10080
-				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANWEEKS",tkername,tker_banweeks)
-				log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANWEEKS",tkername,tker_banweeks)
-			}
-			else if(tker_bantimeint > 40320)
-			{
-				new tker_banmonths = tker_bantimeint/40320
-				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"TKBANMONTHS",tkername,tker_banmonths)
-				log_amx("[DoD TK Revenge] %L",LANG_SERVER,"TKBANMONTHS",tkername,tker_banmonths)
+				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"KICKEDFORTK",tkername)
+				new tker_userid = get_user_userid(id)
+				server_cmd("kick #%d Excessive TeamKilling",tker_userid)
 			}
 		}
 	}
@@ -1692,7 +1369,7 @@ public checkkarma(player)
 		{
 			tkcount[player] -= 1
 			karma[player] = 0
-			if(get_pcvar_num(g_dod_tkrevenge_displaytkcount) == 1)
+			if( get_pcvar_num(g_dod_tkrevenge_displaytkcount) )
 			{
 				set_hudmessage(0, 255, 0, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
 				show_hudmessage(player,"[DoD TK Revenge]^n^n%L",player,"HUDTKDECREASED",tkcount[player],get_pcvar_num(g_dod_tkrevenge_warnings),zKarma)
@@ -1706,52 +1383,45 @@ public checkkarma(player)
 
 public kill_teamkiller(killerid)
 {
-	if(is_user_connected(killerid) == 0)
+	if( is_user_alive(killerid) )
 	{
-		return PLUGIN_HANDLED
+		if( get_pcvar_num(g_dod_tkrevenge_killfx) )
+		{
+			get_user_origin(killerid,tkerorigin[killerid])
+			message_begin(MSG_BROADCAST,SVC_TEMPENTITY,tkerorigin[killerid])   
+			write_byte(3)   
+			write_coord(tkerorigin[killerid][0])   
+			write_coord(tkerorigin[killerid][1])   
+			write_coord(tkerorigin[killerid][2]) 
+			write_short(g_pExplodeModel)   
+			write_byte(60)
+			write_byte(10)
+			write_byte(0)
+			message_end()
+		}
+		user_kill(killerid)
 	}
-	if(get_pcvar_num(g_dod_tkrevenge_killfx) == 1)
-	{
-		get_user_origin(killerid,tkerorigin[killerid])
-		message_begin(MSG_BROADCAST,SVC_TEMPENTITY,tkerorigin[killerid])   
-		write_byte(3)   
-		write_coord(tkerorigin[killerid][0])   
-		write_coord(tkerorigin[killerid][1])   
-		write_coord(tkerorigin[killerid][2]) 
-		write_short(killerburn)   
-		write_byte(60)
-		write_byte(10)
-		write_byte(0)
-		message_end()
-	}
-	client_cmd(killerid,"kill")
-	return PLUGIN_HANDLED
 }
 
 public say_tks(id)
 {
-	if(get_pcvar_num(g_dod_tkrevenge_enabled) == 0 || get_pcvar_num(g_dod_tkrevenge_playersaytks) == 0)
+	if( get_pcvar_num(g_dod_tkrevenge_enabled) && get_pcvar_num(g_dod_tkrevenge_playersaytks) )
 	{
-		return PLUGIN_CONTINUE
+		new zTKs = get_pcvar_num(g_dod_tkrevenge_warnings)
+		if(tkcount[id] == 0)
+		{
+			set_hudmessage(0, 255, 0, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
+			show_hudmessage(id,"[DoD TK Revenge]^n^n%L",id,"HUDTKWARNNOTK",tkcount[id],zTKs)
+		}
+		else if(tkcount[id] < zTKs && tkcount[id] > 0)
+		{
+			set_hudmessage(255, 153, 1, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
+			show_hudmessage(id,"[DoD TK Revenge]^n^n%L",id,"TKWARNING",tkcount[id],zTKs)
+		}
+		else if(tkcount[id] == zTKs)
+		{
+			set_hudmessage(255, 0, 0, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
+			show_hudmessage(id,"[DoD TK Revenge]^n^n%L",id,"TKWARNING",tkcount[id],zTKs)
+		}
 	}
-	new zTKs = get_pcvar_num(g_dod_tkrevenge_warnings)
-	if(tkcount[id] == 0)
-	{
-		set_hudmessage(0, 255, 0, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
-		show_hudmessage(id,"[DoD TK Revenge]^n^n%L",id,"HUDTKWARNNOTK",tkcount[id],zTKs)
-	}
-	else if(tkcount[id] < zTKs && tkcount[id] > 0)
-	{
-		set_hudmessage(255, 153, 1, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
-		show_hudmessage(id,"[DoD TK Revenge]^n^n%L",id,"TKWARNING",tkcount[id],zTKs)
-	}
-	else if(tkcount[id] == zTKs)
-	{
-		set_hudmessage(255, 0, 0, 0.1, -1.0, 0, 6.0, 10.0, 0.1, 0.2, 4)
-		show_hudmessage(id,"[DoD TK Revenge]^n^n%L",id,"TKWARNING",tkcount[id],zTKs)
-	}
-	return PLUGIN_CONTINUE
 }
-/* AMXX-Studio Notes - DO NOT MODIFY BELOW HERE
-*{\\ rtf1\\ ansi\\ deff0{\\ fonttbl{\\ f0\\ fnil Tahoma;}}\n\\ viewkind4\\ uc1\\ pard\\ lang1031\\ f0\\ fs16 \n\\ par }
-*/
