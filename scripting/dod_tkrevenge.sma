@@ -222,6 +222,7 @@ CHANGELOG:
 #include <dodfun>
 #include <fun>
 #include <hamsandwich>
+#include <nvault>
 
 new tkcount[33], tacount[33], karma[33], teamkiller[33], tk_punishment[33]
 new tkillglow[33], melee_attacked[33], nadetk[33], spawn_attacked[33], respawnslay[33]
@@ -261,10 +262,14 @@ new g_pKillKarma
 new g_pBotAction
 new g_pSaveTKs
 
+new Array:g_aSteamIDs, Trie:g_tTKCount
+new g_pVault
+new bool:g_bSaveTKs = false
+
 public plugin_init()
 {
-	register_plugin("DoD TK Revenge", "1.2.7", "Fysiks/FeuerSturm")
-	register_cvar("dod_tkrevenge_plugin", "v1.2.7 by Fysiks/FeuerSturm", FCVAR_SERVER|FCVAR_SPONLY)
+	register_plugin("DoD TK Revenge", "1.2.8", "Fysiks/FeuerSturm")
+	register_cvar("dod_tkrevenge_plugin", "v1.2.8 by Fysiks/FeuerSturm", FCVAR_SERVER|FCVAR_SPONLY)
 
 	register_clcmd("say /tks", "say_tks", 0, "- display current TK Count")
 
@@ -317,12 +322,61 @@ public plugin_precache()
 
 public plugin_cfg()
 {
-	set_cvar_num("mp_tkpenalty", -1)	
+	set_cvar_num("mp_tkpenalty", -1)
+
+	if( (g_bSaveTKs = bool:get_pcvar_num(g_pSaveTKs)) ) // If this cvar is in amxx.cfg, it won't work on the first map.
+	{
+		g_aSteamIDs = ArrayCreate(32) // Only for people that were active on this map
+		g_tTKCount = TrieCreate()
+		g_pVault = nvault_open("tkvault")
+		if( g_pVault == INVALID_HANDLE )
+		{
+			g_bSaveTKs = false
+			log_amx("DOD TK Revenge Vault Failed to open")
+		}
+	}
+}	
+
+public plugin_end()
+{
+	if( g_bSaveTKs )
+	{
+		// Loop through steamid array and store TK count in nVault (which updates timestamp)
+		new szSteamID[32], iTKs, szTKs[3]
+		new iCount = ArraySize(g_aSteamIDs)
+		for( new i = 0; i < iCount; i++ )
+		{
+			ArrayGetString(g_aSteamIDs, i, szSteamID, charsmax(szSteamID))
+			TrieGetCell(g_tTKCount, szSteamID, iTKs)
+			num_to_str(iTKs, szTKs, charsmax(szTKs))
+			nvault_set(g_pVault, szSteamID, szTKs)
+		}
+		// Prune Vault (remove entries older than 1 week (604800 seconds)
+		nvault_prune(g_pVault, 0, get_systime() - 604800)
+		
+		// All done, let's clean up
+		ArrayDestroy(g_aSteamIDs)
+		TrieDestroy(g_tTKCount)
+		nvault_close(g_pVault)
+	}
 }
 
 public client_authorized(id)
 {
-	tkcount[id] = 0
+	if( g_bSaveTKs )
+	{
+		new szSteamID[32]
+		get_user_authid(id, szSteamID, charsmax(szSteamID))
+		if( !TrieGetCell(g_tTKCount, szSteamID, tkcount[id]) )
+		{
+			tkcount[id] = nvault_get(g_pVault, szSteamID)
+		}
+	}
+	else
+	{
+		tkcount[id] = 0
+	}
+
 	tkillglow[id] = 0
 	teamkiller[id] = 0
 	melee_attacked[id] = 0
@@ -331,54 +385,18 @@ public client_authorized(id)
 	spawn_attacked[id] = 0
 	tacount[id] = 0
 	respawnslay[id] = 0
-}
-
-public client_putinserver(id)
-{
-	// Initialize Variables
 	g_iNadeTKCount[id] = 0
-	
-	if( get_pcvar_num(g_pSaveTKs) )
-	{
-		new steamid[32], tkfile[64]
-		get_user_authid(id, steamid, charsmax(steamid))
-		get_configsdir(tkfile, charsmax(tkfile))
-		format(tkfile, charsmax(tkfile), "%s/tks/%s.txt", tkfile, steamid)
-		replace_all(tkfile, charsmax(tkfile), ":", "_")
-		if( file_exists(tkfile) )
-		{
-			new text[32]
-			new a = 0
-			if( read_file(tkfile, 0, text, charsmax(text), a) )
-			{
-				tkcount[id] = str_to_num(text)
-			}
-		}
-	}
 }
 
 public client_disconnect(id)
 {
-	if( get_pcvar_num(g_pSaveTKs) )
+	if( g_bSaveTKs )
 	{
-		new steamid[32], tkfile[64]
-		get_user_authid(id, steamid, charsmax(steamid))
-		get_configsdir(tkfile, charsmax(tkfile))
-		format(tkfile, charsmax(tkfile), "%s/tks/%s.txt", tkfile, steamid)
-		replace_all(tkfile, charsmax(tkfile), ":", "_")
-		if( tkcount[id] == 0 || tkcount[id] > get_pcvar_num(g_pMaxWarnings) )
-		{
-			if( file_exists(tkfile) )
-			{
-				delete_file(tkfile)
-			}
-		}
-		else if( tkcount[id] > 0 && tkcount[id] <= get_pcvar_num(g_pMaxWarnings) )
-		{
-			new tks[3]
-			num_to_str(tkcount[id], tks, charsmax(tks))
-			write_file(tkfile, tks, 0)
-		}
+		// Need to save tks to trie but need to remember to set TKs to zero if kicked/banned for TKs first
+		new szSteamID[32]
+		get_user_authid(id, szSteamID, charsmax(szSteamID))
+		TrieSetCell(g_tTKCount, szSteamID, tkcount[id])
+		ArrayPushString(g_aSteamIDs, szSteamID) // Keep track of all people who played 'this' map
 	}
 	
 	new plist[32], pnum
@@ -1026,6 +1044,7 @@ public checktker(id)
 
 		if( is_user_connected(id) )
 		{
+			tkcount[id] = 0  // Since they get to be punished, set tk count back to zero so they can join next time with clean slate.
 			if( get_pcvar_num(g_pBan) )
 			{
 				new tker_bantimeint = get_pcvar_num(g_pBanTime)
@@ -1153,3 +1172,30 @@ public say_tks(id)
 		}
 	}
 }
+
+
+// Requires a dynamic array (for logging at end of map; basically for traversing the trie) and a trie (keeping track of tk count)
+
+
+stock load_all_clients_from_file()
+{
+	// Load all logged clients into array and trie
+	// Maybe use nVault so we can prune based on timestamp
+	// Prune nVault (if haven't connected in 1 week or so, clear entry)
+	// in plugin_init()
+	// Alternative:  Load on client_authorized() pulling from nVault directly (this requires file acces, array pushing, and trie insertion mid-game :( )
+}
+
+stock update_log_data(id)
+{
+	// Update trie with TK count
+	// client_disconnect()?
+}
+
+stock write_data_to_disk()
+{
+	// Log TK data using Array and Trie
+	// Loop through Array, Get TK count from Trie, Set nVault value
+	// plugin_end()
+}
+
