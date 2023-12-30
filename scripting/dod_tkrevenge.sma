@@ -235,282 +235,9 @@
 //
 //
 // CHANGELOG:
-// ==========
+// =========
+// Old changelog can be found in original plugin
 //
-// - 27.11.2004 Version 0.5beta
-//   Initial Release
-//
-// - 30.11.2004 Version 0.6beta
-//   added feature:
-//   - melee TAs/TKs can be handled
-//     different now, it's possible
-//     to directly slay on a melee
-//     TA/TK without giving the victim
-//     the ability to forgive or glow.
-//     if the attacker is slayed for
-//     a melee attack, his tk count
-//     is not increased, but if he
-//     is slayed for a melee tk,
-//     it will be increased.
-//   bug fixes:
-//   - fixed oversight that tk count
-//     wasn't increased on "Slay!" when
-//     teamkiller was already dead.
-//   generic changes:
-//   - sound "it's time to choose" is played
-//     to the victim when the menu comes up.
-//     (a different sound for axis and allies)
-//   - renamed "Glow!" to "1hp & Glow!"
-//     according to what it actually does.
-//
-// - 22.12.2004 Version 0.7beta
-//   added feature:
-//   - grenade TKs can be handled on a special
-//     way now, it's possible to enable/disable
-//     increasing the killer's TK-count after
-//     an unforgiven grenade tk.
-//
-// - 31.12.2004 Version 0.8beta
-//   added features:
-//   - by killing X enemies without any TKs
-//     between, the TK-Count of a player
-//     can be reduced by one.
-//   - added tk-revenge for bots that are tked,
-//     you can set the bots to forgive,
-//     1hp & glow or slay the teamkiller.
-//     (or disable any bot action)
-//
-// - 08.01.2005 Version 0.9beta
-//   added feature:
-//   - every player's tk-count can be saved and
-//     reloaded if he reconnects.
-//     This feature is independent from time and
-//     map, his info is saved for good until you
-//     either delete it, or the TKer starts to play
-//     serious and gets his tk-count decreased.
-//     this prevents hardcore teamkillers from
-//     simply reconnecting to the server to get their
-//     tk-count zeroed.
-//     Note: the tk-count will be reset after the
-//           player reached the tk-limit and got
-//           kicked and/or banned.
-//     BIG thanks to Zor for adding this whole feature
-//     and finally making this plugin competitive to
-//     the DoDx TK Manager.
-//   bugfixes:
-//   - fixed oversight that the tk-count was increased
-//     by 2 for killing a bot with a melee weapon and
-//     the botaction set to "Slay!".
-//   - fixed minor bug in a info message when a player
-//     gets banned for excessive tking.
-//
-// - 18.01.2005 Version 0.9beta2 (a.k.a. almost final)
-//   added feature:
-//   - the name of the player that teamkilled the
-//     victim is displayed in the DoD TK Revenge
-//     Menu right after the options. So people know
-//     who they are actually about to punish or forgive.
-//
-// - 22.01.2005 Version 0.95beta
-//   added features:
-//   - automatic Spawn-TK treatment
-//     * a tk within a set time after respawn will
-//       result in slaying the TKer and increasing
-//       his TK-count by your set amount.
-//   - TK Revenge Menu layout can be changed by CVar
-//     * "1hp & Glow!" can be replaced with "Slap with 50percent!"
-//       or removed at all so that it's only "Forgive!" and "Slay!".
-//     * the glowing option can be disabled.
-//   - TK-Count for Melee-Slays can be increased by
-//     custom amount of warnings
-//   - Admin Immunity can be turned on/off
-//
-// - 23.01.2005 Version 0.95beta2
-//   added feature:
-//   - AMXBans can be used to ban players from the server.
-//     (dod_tkrevenge_useamxbans 1)
-//
-// - 28.01.2005 Version 0.99beta
-//   cosmetic patches:
-//   - i changed the code a bit, so AMXBans recognizes the ban
-//     lenght correctly, before it showed a permanent ban as
-//     time 0.00000000 in the web-banlist, now it says "Permanent".
-//     same for ban lengths like "7 days" etc. which was displayed
-//     as 10080.0000000 before.
-//   - i replaced the message that is displayed to all players when
-//     someone gets banned to reflect the correct length instead
-//     of showing a big amount of minutes.
-//     so my advice for the ban lenght you choose:
-//     use only full hours, full days, full weeks or full months,
-//     then it will be displayed correctly.
-//       1 day = 1440 minutes
-//       1 week = 10080 minutes
-//       1 month = 40320 minutes
-//     multiply those values with the amount of hours/days/weeks
-//     or months you want people to be banned and use that value
-//     as banlength!
-//     Example: 4 days = 5760 minutes as banlenght
-//
-// - 01.02.2005 Version 0.99beta2
-//   added features:
-//   - new menu layout "4" which will be "Forgive!" and
-//     "DON'T Forgive!" (basically does the same as "Slay!" just
-//     without killing the attacker)
-//   - new botaction "5" which will be "DON'T Forgive!"
-//   - new cvar to set to not increase victim's death on TKs
-//   general:
-//   - DoDFun module is required now!
-//
-// - 04.02.2005 Version 0.99beta3 "feature lock"
-//   added feature:
-//   - you can choose whether to slap the teamkiller without
-//     damage when "Forgive!" was chosen, or not.
-//
-// - 09.04.2005 Version 0.99beta4
-//   tweaked feature:
-//   - you can enable mirror damage within your set spawntime,
-//     so that people that just try to bring your health a bit
-//     down without killing you will only be hurting themselves.
-//     you can enable/disable that with the new cvar
-//     "dod_tkrevenge_spawntahandle"
-//
-// - 07.05.2005 Version 0.999beta
-//   mysql tweaks by Zor(only MySQL-Version!):	
-//   - Worked on the sql connection area and now only have one
-//     connect instead of a bunch.
-//   general tweaks:
-//   - optimized the code a bit
-//
-// - 18.05.2005 Version 0.9pre-final
-//   bugfixes:
-//   - disabled revenge menu for spawn tks
-//   - mirrordamage works correctly now
-//   - fixed some problems with bot actions
-//   - fixed multiple messages for melee spawn tks
-//   general changes:
-//   - code optimizations
-//   additions:
-//   - added cvar to allow players to check their
-//     tk-counts by saying "/tks".
-//     (new cvar: dod_tkrevenge_playersaytks <1/0>)
-//   - added cvar to specify the banreason which is
-//     displayed in the AMXBans Webinterface
-//     (only works if AMXBans is used!)
-//     (new cvar: dod_tkrevenge_amxbansreason <"Your reason here!">)
-//
-// - 18.05.2005 Version 0.9pre-final2
-//   bugfixes:
-//   - fixed TK Revenge Menu comming up after Grenade TKs
-//     when Grenade TK-Count is disabled on MenuLayout 4
-//     (Forgive!/DON'T Forgive!)
-//   - TK Revenge Menu now stays open until the victim
-//     chose an option.
-//
-// - 15.07.2005 Version 0.9pre-final3
-//   tweaks:
-//   - removed "spawntime" check to indentify SpawnTKs
-//     and replaced it with a distance check between the victim's
-//     spawnpoint and the postion of being TKed/TAed.
-//     (new cvar: "dod_tkrevenge_spawndistance")
-//
-// - 29.07.2005 Version 0.9pre-final4
-//   nice little update:
-//   - added special effects for killing the TeamKiller,
-//     if enabled, the player dies in fire explosion with sound.
-//     (new cvar: dod_tkrevenge_killfx <1/0>)
-//     NOTE: only players in a small radius around the killed
-//           player hear the sound, so don't worry about being
-//           "sound-spammed" all the time    
-//
-// - 12.08.2005 Version 0.9pre-final5
-//   major tweaks:
-//   - changed cvar "dod_tkrevenge_killsreducetk" to
-//     "dod_tkrevenge_karmareducetks" and added two new cvars:
-//     "dod_tkrevenge_killkarma" and
-//     "dod_tkrevenge_scorekarma" so that flagcaps can be
-//     taken into account for reducing someone's tkcount
-//     as well as killing enemies.
-//     the "karmareducetks" cvar specifies the needed amount
-//     of karma to reduce the player's tkcount by 1 while
-//     "killkarma" specifies how many karma points are added
-//     per enemykill and "scorekarma" specifies how many
-//     karma points are added for capping a flag.
-//   - added cvar "dod_tkrevenge_tasequaltk" which specifies
-//     the amount of TeamAttacks that equal 1 unforgiven TK and
-//     added cvar "dod_tkrevenge_tareset" which allows you to
-//     either reset each players TA-count on every roundstart
-//     or keep it until it equals a TK and automatically is reset
-//
-// - 21.08.2005 Version 0.9pre-final6
-//   bug fixes:
-//   - fixed bug of TK-victims of admins not getting the death
-//     removed if "dod_tkrevenge_obeyimmunity" was enabled
-//   additions:
-//   - added cvars "dod_tkrevenge_displaytacount" and
-//     "dod_tkrevenge_displaytkcount" which lets you specify
-//     if the hudmessages should be shown or not when a player's
-//     TA/TK count is increased (or decreased by Karma Points).
-//
-// - 27.11.2005 Version 0.9pre-final7
-//   bug fixes:
-//   - raised stability of the plugin
-//   - fixed spawnprotection not working correctly
-//   - fixed new players being punished for TKs they
-//     didn't commit. this happened because of not
-//     clearing victim's "TeamKiller Cache" once
-//     a TeamKiller disconnected before he could
-//     receive his punishment
-//   generic changes:
-//   - removed cvar "dod_tkrevenge_mirrordmg"
-//   additions:
-//   - added 2 modes for handling Spawn-TAs:
-//     SpawnMirrorDamage & InstantAttackerDeath
-//     (new cvar "dod_tkrevenge_spawntahandle")
-//   - added feature to slay TeamKillers after
-//     respawning if they were already dead when
-//     the victim chose "Slay!" from the menu
-//     (new cvar "dod_tkrevenge_respawnslay")
-//   - added cvar "dod_tkrevenge_addmirrordmg"
-//     to specify how many HP a SpawnAttacker loses
-//     additionally to the damage mirrored back at him.
-//     (only applies if "dod_tkrevenge_spawntahandle"
-//      is set to "1"!)
-//
-// - 02.04.2006 Version  0.9pre-final8
-//   - bugfix
-//     - fixed the user_kill to client_cmd(killerid,"kill")
-//   - Fixes
-//     - fixed plugin to use the new cvar pointer system
-//     - fixed plugin to use either file or dbi system
-//
-// - 07.04.2006 Version  0.9.9
-//   - added defined for dbi shit so ppl wont have to have 
-//	the dbi if they dont want it
-//
-// - 09.10.2006 Version 1.0
-//   - Removed the DBI and left it as is but put out another
-//	version with the dbi
-//
-// - 02.07.2007 Version 1.1
-//   - using DeathMsg event instead of client_death for
-//     more reliability
-//   - using ResetHUD event instead of dod_client_spawn for
-//     more reliability
-//   - added round state "Draw" to reset team attacks
-//   - fixed some minor bugs
-//   - added global tracking cvar
-//
-// - 20.07.2007 Version 1.2
-//   - added complete Multilanguage support!
-//     You will only need to replace version 1.1
-//     with this version if you want multilanguage
-//     support, for now no other changes have been made!
-//
-// - 19.01.2014 (Fysiks)
-//   - Refactored a bunch of code (some changes improve efficiency)
-//   - Updated spawn hook to Hamsandwich (the only reliable method for detecting spawn)
-//   - Moved bot action to the menu handler
-//     
 
 #include <amxmodx>
 #include <amxmisc>
@@ -522,7 +249,7 @@
 new tkcount[33], tacount[33], karma[33], teamkiller[33], tk_punishment[33]
 new tkillglow[33], melee_attacked[33], nadetk[33], spawn_attacked[33], respawnslay[33]
 new spawnorigin[33][3], killorigin[33][3], tkerorigin[33][3]
-
+new g_iNadeTKCount[33]
 new g_pExplodeModel // Pointer to the explosion model
 
 // Cvars
@@ -559,8 +286,8 @@ new g_dod_tkrevenge_savetks
 
 public plugin_init()
 {
-	register_plugin("DoD TK Revenge","1.2f2","AMXX DoD Team/Fysiks")
-	register_cvar("dod_tkrevenge_plugin", "Version 1.2f1 by FeuerSturm | Refactored by Fysiks", FCVAR_SERVER|FCVAR_SPONLY)
+	register_plugin("DoD TK Revenge","1.2.6","AMXX DoD Team/Fysiks")
+	register_cvar("dod_tkrevenge_plugin", "v1.2.6 by Fysiks/FeuerSturm", FCVAR_SERVER|FCVAR_SPONLY)
 	register_statsfwd(XMF_SCORE)
 	register_statsfwd(XMF_DAMAGE)
 	register_event("DeathMsg", "player_died", "a")
@@ -596,11 +323,10 @@ public plugin_init()
 	g_dod_tkrevenge_killkarma = register_cvar("dod_tkrevenge_killkarma","1")
 	g_dod_tkrevenge_botaction = register_cvar("dod_tkrevenge_botaction","0")
 	g_dod_tkrevenge_savetks = register_cvar("dod_tkrevenge_savetks","0")	
-	register_menucmd(register_menuid("DoD TK Revenge"),(1<<0)|(1<<1)|(1<<2),"tkrevenge_options")
+	register_menucmd(register_menuid("DoD TK Revenge"),(1<<0)|(1<<1)|(1<<2)|(1<<4),"tkrevenge_options")
 	register_event("RoundState","reset_teamattacks","a","1=3","1=4","1=5")
 	RegisterHam(Ham_Spawn, "player", "client_spawn", 1)
 	register_dictionary("dod_tkrevenge.txt")
-	set_cvar_num("mp_tkpenalty",-1)	
 }
 
 public plugin_precache()
@@ -610,10 +336,7 @@ public plugin_precache()
 
 public plugin_cfg()
 {
-	// Set the tk penalty to correspond with the warnings for a ban (plus 2)
-	// so that the plugin can ban before they get kicked.
-	set_cvar_num("mp_tkpenalty", get_pcvar_num(g_dod_tkrevenge_warnings) * 2 + 2)
-	// mp_tkpenalty is glitched.  It will kick after 'mp_tkpenalty'/2 team kills in a row.
+	set_cvar_num("mp_tkpenalty", -1)	
 }
 
 public client_authorized(id)
@@ -626,10 +349,14 @@ public client_authorized(id)
 	karma[id] = 0
 	spawn_attacked[id] = 0
 	tacount[id] = 0
+	respawnslay[id] = 0
 }
 
 public client_putinserver(id)
 {
+	// Initialize Variables
+	g_iNadeTKCount[id] = 0
+	
 	if( get_pcvar_num(g_dod_tkrevenge_savetks) )
 	{
 		new steamid[32]
@@ -649,7 +376,6 @@ public client_putinserver(id)
 			}
 		}
 	}
-	return PLUGIN_CONTINUE
 }
 
 public client_disconnect(id)
@@ -689,7 +415,6 @@ public client_disconnect(id)
 			teamkiller[plist[i]] = 0
 		}
 	}
-	return PLUGIN_CONTINUE
 }
 
 public reset_teamattacks()
@@ -828,9 +553,16 @@ public player_died()
 	param[3] = 0
 	if (param[1] > 0 && param[0] > 0)
 	{
-		if ((get_user_team(param[1]) == get_user_team(param[0])) && (param[1] != param[0]))
+		if( param[1] != param[0] )
 		{
-			param[3] = 1
+			if( get_user_team(param[1]) == get_user_team(param[0]) )
+			{
+				param[3] = 1
+			}
+			else
+			{
+				g_iNadeTKCount[param[1]] = 0
+			}
 		}
 		set_task(0.1,"player_died2",0,param,4)
 	}
@@ -900,33 +632,18 @@ public handle_tk(param[])
 		tk_punishment[killer] = 1
 	}
 	
-	if( killer == 1)
-	{
-		server_print("melee:  %d >><< spawn:  %d", melee_attacked[victim], spawn_attacked[victim]);
-	}
-
-	// Handle if spawn tk (if cvar enabled)
-	// if( spawn_attacked[victim] && !melee_attacked[victim] )
-	// {
-		// get_user_name(victim,victimname,31)
-		// get_user_name(killer,killername,31)
-		// if( is_user_alive(killer) )
-		// {
-			// client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SLAYSPAWNKILL",killername,victimname)
-			// set_task(0.1,"kill_teamkiller",killer)
-		// }
-		// else
-		// {
-			// client_print(0, print_chat, "[DoD TK Revenge] %L",LANG_PLAYER,"SPAWNTKCOUNT",killername,victimname)
-		// }
-	// }
-	
 	// Check for nade kill
 	switch( wpnindex )
 	{
 		case DODW_HANDGRENADE, DODW_STICKGRENADE, DODW_MILLS_BOMB:
 		{
 			nadetk[killer] = !get_pcvar_num(g_dod_tkrevenge_nadetkcount)  // ignore tk by nade if cvar is true
+			if( (g_iNadeTKCount[killer] += 1) >= 3 )
+			{
+				new szName[32]; get_user_name(killer, szName, charsmax(szName))
+				server_cmd("kick #%d", get_user_userid(killer))
+				client_print(0, print_console, "%s has team killed too many times.  Now being kicked!", szName)
+			}
 		}
 	}
 
@@ -1027,6 +744,9 @@ public tkrevenge_menu(param[])
 		}
 	}
 
+	// Add option to not forgive but without slay
+	key |= (1<<4)
+	
 	show_menu(victim,key,revenge_menu)
 
 	switch( get_user_team(victim) )
@@ -1083,6 +803,11 @@ public tkrevenge_options(id,key)
 		}
 	}
 
+	if( key == 4 )
+	{
+		revenge_dontforgive(teamkiller[id], id, tk_punishment[teamkiller[id]], 0)
+	}
+	
 	// Bot Options
 	switch(key)
 	{
@@ -1112,13 +837,16 @@ revenge_forgive(killerid, victimid)
 	}
 }
 
-revenge_dontforgive(killerid, victimid, punish=1)
+revenge_dontforgive(killerid, victimid, punish=1, msg=1)
 {
 	new victimname[32], killername[32]
 	get_user_name(victimid, victimname, charsmax(victimname))
 	get_user_name(killerid, killername, charsmax(killername))
 
-	client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"NOTFORGIVENTK",victimname,killername)
+	if( msg )
+	{
+		client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"NOTFORGIVENTK",victimname,killername)
+	}
 	if( !nadetk[killerid] && !is_user_bot(killerid) )
 	{
 		tkcount[killerid] += punish
@@ -1200,6 +928,8 @@ revenge_slay(killerid, victimid, punish=1)
 			if( get_pcvar_num(g_dod_tkrevenge_respawnslay) )
 			{
 				respawnslay[killerid] = 1
+				tkcount[killerid] += punish
+				checktker(killerid)
 				client_print(0,print_chat,"[DoD TK Revenge] %L",LANG_PLAYER,"SLAYAFTERRESPAWN",killername,victimname)
 			}
 			else
